@@ -5,6 +5,7 @@ on:
     pull_request_target: 
         branches: 
             - main
+    workflow_dispatch:
 
 permissions: 
     pull-requests: write
