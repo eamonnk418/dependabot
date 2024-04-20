@@ -5,7 +5,11 @@ on:
     pull_request_target: 
         branches: 
             - main
-    workflow_dispatch:
+    workflow_dispatch: 
+        inputs:
+            description: "Actor to trigger workflow"
+            required: true
+            default: "dependabot[bot]"
 
 permissions: 
     pull-requests: write
