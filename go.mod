@@ -1,6 +1,6 @@
 module github.com/eamonnk418/dependabot
 
-go 1.22.2
+go 1.18
 
 require (
 	github.com/google/go-github/v59 v59.0.0
