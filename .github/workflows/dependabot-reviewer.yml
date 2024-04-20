@@ -7,9 +7,11 @@ on:
             - main
     workflow_dispatch: 
         inputs:
-            description: "Actor to trigger workflow"
-            required: true
-            default: "dependabot[bot]"
+            actor:
+                default: "dependabot[bot]"
+                description: "Actor to use for the review"
+                required: true
+                type: string
 
 permissions: 
     pull-requests: write
