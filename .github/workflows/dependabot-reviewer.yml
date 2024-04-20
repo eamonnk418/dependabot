@@ -1,6 +1,8 @@
-name: CI
+name: Dependabot reviewer
+run-name: ${{ github.actor }} is reviewing dependabot PR
+
 on:
-    pull_request:
+    pull_request_target: 
         branches: 
             - main
 
