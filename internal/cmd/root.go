@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"github.com/eamonnk418/dependabot/internal/cmd/create"
 	"github.com/spf13/cobra"
 )
 
@@ -15,7 +14,7 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
-	rootCmd.AddCommand(create.NewCreateCmd())
+	rootCmd.AddCommand(NewConfigCmd())
 
 	return rootCmd
 }

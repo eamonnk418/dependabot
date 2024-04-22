@@ -1,10 +1,11 @@
 module github.com/eamonnk418/dependabot
 
-go 1.18
+go 1.22.2
 
 require (
 	github.com/google/go-github/v59 v59.0.0
 	github.com/spf13/cobra v1.8.0
+	golang.org/x/oauth2 v0.19.0
 )
 
 require (

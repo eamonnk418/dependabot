@@ -1,15 +1,16 @@
-package create
+package cmd
 
 import "github.com/spf13/cobra"
 
-func NewCreateCmd() *cobra.Command{
+func NewCreateCmd() *cobra.Command {
 	createCmd := &cobra.Command{
-		Use: "create",
+		Use:   "create",
 		Short: "create",
-		Long: "create",
+		Long:  "create",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.Println("Hello from create command")
 			return nil
+
 		},
 	}
 
