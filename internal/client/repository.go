@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/google/go-github/v59/github"
-	"golang.org/x/sync/errgroup"
 )
 
 type EcosystemMap map[string][]string
@@ -150,18 +149,13 @@ func (c GitHubClient) ListRepositories2(ctx context.Context, org string) ([]*git
 }
 
 func (c GitHubClient) GetRepositoryContents(ctx context.Context, path string, repository *github.Repository, supportedEcosystems EcosystemMap) (string, []string, error) {
-	// Create a map to store directories by ecosystem
-	directoriesByEcosystem := make(map[string][]string)
-	var mu sync.Mutex // Mutex to synchronize access to directoriesByEcosystem
-
-	// Create an errgroup for concurrent operations
-	eg, ctx := errgroup.WithContext(ctx)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 
 	owner := repository.GetOwner().GetLogin()
 	repo := repository.GetName()
 	ref := repository.GetDefaultBranch()
 
-	// Get the contents of the specified directory
 	_, directoryContent, _, err := c.Repositories.GetContents(ctx, owner, repo, path, &github.RepositoryContentGetOptions{
 		Ref: ref,
 	})
@@ -169,57 +163,42 @@ func (c GitHubClient) GetRepositoryContents(ctx context.Context, path string, re
 		return "", nil, err
 	}
 
-	var packageEcosystem string // To store the package ecosystem found
+	var packageEcosystem string
+	var directories []string
 
 	for _, content := range directoryContent {
 		contentType := content.GetType()
 		contentName := content.GetName()
 
 		if contentType == "dir" {
-			contentPath := content.GetPath() // Capture the path before goroutine
-			// Launch a goroutine to fetch contents of directories concurrently
-			eg.Go(func() error {
+			wg.Add(1)
+			go func(contentPath string) {
+				defer wg.Done()
+
 				subEcosystem, subDirectories, err := c.GetRepositoryContents(ctx, contentPath, repository, supportedEcosystems)
 				if err != nil {
-					return err
+					return
 				}
-				mu.Lock()
-				defer mu.Unlock()
 				if subEcosystem != "" {
-					// Associate each directory with the subEcosystem
-					for _, dir := range subDirectories {
-						directoriesByEcosystem[subEcosystem] = append(directoriesByEcosystem[subEcosystem], dir)
-					}
+					mu.Lock()
+					packageEcosystem = subEcosystem
+					directories = append(directories, subDirectories...)
+					mu.Unlock()
 				}
-				return nil
-			})
-		} else if contentName == "package.json" {
-			// If it's a package.json file, add the directory containing it to the result
-			directoryPath := strings.TrimSuffix(content.GetPath(), "/package.json")
-			if directoryPath == "package.json" {
-				directoryPath = "/"
-			}
-			// Get the package ecosystem for this file
+			}(content.GetPath())
+		} else {
+			// Check if the file belongs to any supported ecosystem
 			ecosystem := supportedEcosystems.GetPackageEcosystem(contentName)
 			if ecosystem != "" && packageEcosystem == "" {
-				packageEcosystem = ecosystem // Update packageEcosystem if not already set
+				packageEcosystem = ecosystem
 				mu.Lock()
-				directoriesByEcosystem[ecosystem] = append(directoriesByEcosystem[ecosystem], directoryPath)
+				directories = append(directories, strings.TrimSuffix(content.GetPath(), fmt.Sprintf("/%s", contentName)))
 				mu.Unlock()
 			}
 		}
 	}
 
-	// Wait for all goroutines to finish
-	if err := eg.Wait(); err != nil {
-		return "", nil, err
-	}
-
-	// Flatten the directoriesByEcosystem map into a slice of directories
-	var directories []string
-	for _, dirs := range directoriesByEcosystem {
-		directories = append(directories, dirs...)
-	}
+	wg.Wait()
 
 	return packageEcosystem, directories, nil
 }

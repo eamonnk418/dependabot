@@ -53,7 +53,7 @@ func NewPreviewCmd() *cobra.Command {
 				return err
 			}
 
-			cmd.Println("Package ecosystem: ", packageEcosystem)
+			cmd.Printf("Package ecosystem: %s\n", packageEcosystem)
 
 			for _, path := range directories {
 				cmd.Printf("Directory: %s\n", path)
