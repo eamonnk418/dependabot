@@ -47,13 +47,16 @@ func NewPreviewCmd() *cobra.Command {
 				return err
 			}
 
-			ecosystem, err := githubClient.GetRepositoryContents(cmd.Context(), path, repo)
+			ecosystemMap := make(client.EcosystemMap)
+			packageEcosystem, directories, err := githubClient.GetRepositoryContents(cmd.Context(), path, repo, ecosystemMap)
 			if err != nil {
 				return err
 			}
 
-			for _, path := range ecosystem {
-				cmd.Printf("Dictectory: %s\n", path)
+			cmd.Println("Package ecosystem: ", packageEcosystem)
+
+			for _, path := range directories {
+				cmd.Printf("Directory: %s\n", path)
 			}
 
 			// generate the dependabot.yml template

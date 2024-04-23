@@ -11,6 +11,27 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+type EcosystemMap map[string][]string
+
+// Initialize an EcosystemMap with supported ecosystems and their associated filenames
+var supportedEcosystems = EcosystemMap{
+	"npm":    []string{"package.json"},
+	"gomod":  []string{"go.mod"},
+	"maven":  []string{"pom.xml"},
+	"gradle": []string{"build.gradle", "build.gradle.kts"},
+}
+
+func (p EcosystemMap) GetPackageEcosystem(fileName string) string {
+	for ecosystem, files := range supportedEcosystems {
+		for _, file := range files {
+			if file == fileName {
+				return ecosystem
+			}
+		}
+	}
+	return "" // Return empty string if no ecosystem found
+}
+
 type Repository struct {
 	Name  string
 	Owner string
@@ -128,11 +149,10 @@ func (c GitHubClient) ListRepositories2(ctx context.Context, org string) ([]*git
 	return allRepos, nil
 }
 
-func (c GitHubClient) GetRepositoryContents(ctx context.Context, path string, repository *github.Repository) ([]string, error) {
-	var directories []string
-	var mu sync.Mutex // Mutex to synchronize access to the directories slice
-
-	ecosystem := make(map[string][]string)
+func (c GitHubClient) GetRepositoryContents(ctx context.Context, path string, repository *github.Repository, supportedEcosystems EcosystemMap) (string, []string, error) {
+	// Create a map to store directories by ecosystem
+	directoriesByEcosystem := make(map[string][]string)
+	var mu sync.Mutex // Mutex to synchronize access to directoriesByEcosystem
 
 	// Create an errgroup for concurrent operations
 	eg, ctx := errgroup.WithContext(ctx)
@@ -146,8 +166,10 @@ func (c GitHubClient) GetRepositoryContents(ctx context.Context, path string, re
 		Ref: ref,
 	})
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
+
+	var packageEcosystem string // To store the package ecosystem found
 
 	for _, content := range directoryContent {
 		contentType := content.GetType()
@@ -157,13 +179,18 @@ func (c GitHubClient) GetRepositoryContents(ctx context.Context, path string, re
 			contentPath := content.GetPath() // Capture the path before goroutine
 			// Launch a goroutine to fetch contents of directories concurrently
 			eg.Go(func() error {
-				subDirectories, err := c.GetRepositoryContents(ctx, contentPath, repository)
+				subEcosystem, subDirectories, err := c.GetRepositoryContents(ctx, contentPath, repository, supportedEcosystems)
 				if err != nil {
 					return err
 				}
 				mu.Lock()
 				defer mu.Unlock()
-				directories = append(directories, subDirectories...)
+				if subEcosystem != "" {
+					// Associate each directory with the subEcosystem
+					for _, dir := range subDirectories {
+						directoriesByEcosystem[subEcosystem] = append(directoriesByEcosystem[subEcosystem], dir)
+					}
+				}
 				return nil
 			})
 		} else if contentName == "package.json" {
@@ -172,16 +199,27 @@ func (c GitHubClient) GetRepositoryContents(ctx context.Context, path string, re
 			if directoryPath == "package.json" {
 				directoryPath = "/"
 			}
-			mu.Lock()
-			directories = append(directories, directoryPath)
-			mu.Unlock()
+			// Get the package ecosystem for this file
+			ecosystem := supportedEcosystems.GetPackageEcosystem(contentName)
+			if ecosystem != "" && packageEcosystem == "" {
+				packageEcosystem = ecosystem // Update packageEcosystem if not already set
+				mu.Lock()
+				directoriesByEcosystem[ecosystem] = append(directoriesByEcosystem[ecosystem], directoryPath)
+				mu.Unlock()
+			}
 		}
 	}
 
 	// Wait for all goroutines to finish
 	if err := eg.Wait(); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
-	return directories, nil
+	// Flatten the directoriesByEcosystem map into a slice of directories
+	var directories []string
+	for _, dirs := range directoriesByEcosystem {
+		directories = append(directories, dirs...)
+	}
+
+	return packageEcosystem, directories, nil
 }

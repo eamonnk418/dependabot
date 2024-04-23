@@ -13,7 +13,7 @@ type GitHubService interface {
 	GetRepository(ctx context.Context, name string) (*github.Repository, error)
 	ListRepositories(ctx context.Context, org string) ([]*github.Repository, error)
 	ListRepositories2(ctx context.Context, org string) ([]*github.Repository, error)
-	GetRepositoryContents(ctx context.Context, filepath string, repository *github.Repository) ([]string, error)
+	GetRepositoryContents(ctx context.Context, filepath string, repository *github.Repository, packageEcosystem EcosystemMap) (string, []string, error)
 }
 
 type GitHubClient struct {
