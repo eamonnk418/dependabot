@@ -52,7 +52,9 @@ func NewPreviewCmd() *cobra.Command {
 				return err
 			}
 
-			cmd.Println(ecosystem)
+			for _, path := range ecosystem {
+				cmd.Printf("Dictectory: %s\n", path)
+			}
 
 			// generate the dependabot.yml template
 

@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/google/go-github/v59/github"
+	"golang.org/x/sync/errgroup"
 )
 
 type Repository struct {
@@ -127,13 +128,20 @@ func (c GitHubClient) ListRepositories2(ctx context.Context, org string) ([]*git
 	return allRepos, nil
 }
 
-func (c GitHubClient) GetRepositoryContents(ctx context.Context, path string, repository *github.Repository) (map[string]string, error) {
-	ecosystem := make(map[string]string)
+func (c GitHubClient) GetRepositoryContents(ctx context.Context, path string, repository *github.Repository) ([]string, error) {
+	var directories []string
+	var mu sync.Mutex // Mutex to synchronize access to the directories slice
+
+	ecosystem := make(map[string][]string)
+
+	// Create an errgroup for concurrent operations
+	eg, ctx := errgroup.WithContext(ctx)
 
 	owner := repository.GetOwner().GetLogin()
 	repo := repository.GetName()
 	ref := repository.GetDefaultBranch()
 
+	// Get the contents of the specified directory
 	_, directoryContent, _, err := c.Repositories.GetContents(ctx, owner, repo, path, &github.RepositoryContentGetOptions{
 		Ref: ref,
 	})
@@ -142,16 +150,38 @@ func (c GitHubClient) GetRepositoryContents(ctx context.Context, path string, re
 	}
 
 	for _, content := range directoryContent {
-		// contentType := content.GetType()
-		// contentName := content.GetName()
+		contentType := content.GetType()
+		contentName := content.GetName()
 
-		// if contentType == "file" && contentName == "package.json" {
-		// 	fmt.Printf("We found the package.json file in: %s\n", content.GetPath())
-		// 	ecosystem["npm"] = filepath.Dir(content.GetPath())
-		// }
-
-		fmt.Println(content.GetPath())
+		if contentType == "dir" {
+			contentPath := content.GetPath() // Capture the path before goroutine
+			// Launch a goroutine to fetch contents of directories concurrently
+			eg.Go(func() error {
+				subDirectories, err := c.GetRepositoryContents(ctx, contentPath, repository)
+				if err != nil {
+					return err
+				}
+				mu.Lock()
+				defer mu.Unlock()
+				directories = append(directories, subDirectories...)
+				return nil
+			})
+		} else if contentName == "package.json" {
+			// If it's a package.json file, add the directory containing it to the result
+			directoryPath := strings.TrimSuffix(content.GetPath(), "/package.json")
+			if directoryPath == "package.json" {
+				directoryPath = "/"
+			}
+			mu.Lock()
+			directories = append(directories, directoryPath)
+			mu.Unlock()
+		}
 	}
 
-	return ecosystem, nil
+	// Wait for all goroutines to finish
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	return directories, nil
 }
