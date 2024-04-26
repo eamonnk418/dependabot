@@ -1,11 +1,25 @@
 package cmd
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"errors"
+	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/eamonnk418/dependabot/internal/client"
 	"github.com/spf13/cobra"
 )
+
+var supportedEcosystems = map[string][]string{
+	"npm":    {"package.json"},
+	"gomod":  {"go.mod"},
+	"maven":  {"pom.xml"},
+	"gradle": {"build.gradle", "build.gradle.kts", "gradle/libs.versions.toml"},
+}
 
 func NewPreviewCmd() *cobra.Command {
 	var (
@@ -18,50 +32,61 @@ func NewPreviewCmd() *cobra.Command {
 		Short: "preview",
 		Long:  "preview",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// analyze github repo what eco-system it uses etc.
-
-			token := os.Getenv("GITHUB_TOKEN")
-
-			githubClient := client.NewGitHubClient(client.WithAuthToken(token))
-
-			// repos, err := githubClient.ListRepositories(cmd.Context(), org)
-			// if err != nil {
-			// 	return err
-			// }
-
-			// for i, r := range repos {
-			// 	cmd.Printf("Name[%d]: %s, Visibility: %s\n", i+1, r.GetFullName(), r.GetVisibility())
-			// }
-
-			// repos2, err := githubClient.ListRepositories2(cmd.Context(), repoName)
-			// if err != nil {
-			// 	return err
-			// }
-
-			// for i, r := range repos2 {
-			// 	cmd.Printf("Name[%d]: %s, Visibility: %s\n", i+1, r.GetFullName(), r.GetVisibility())
-			// }
-
-			repo, err := githubClient.GetRepository(cmd.Context(), repoName)
+			ghClient := client.NewGitHubClient(client.WithAuthToken(os.Getenv("GITHUB_TOKEN")))
+			tarball, err := ghClient.DownloadRepository(cmd.Context(), repoName)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to download repository: %w", err)
 			}
+			defer os.Remove(tarball.Name())
 
-			ecosystemMap := make(client.EcosystemMap)
-			packageEcosystem, directories, err := githubClient.GetRepositoryContents(cmd.Context(), path, repo, ecosystemMap)
+			cmd.Printf("Downloaded repository %s\n", repoName)
+
+			b, err := os.ReadFile(tarball.Name())
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to read tarball: %w", err)
 			}
 
-			cmd.Printf("Package ecosystem: %s\n", packageEcosystem)
+			gzipReader, err := gzip.NewReader(strings.NewReader(string(b)))
+			if err != nil {
+				return fmt.Errorf("failed to create gzip reader: %w", err)
+			}
+			defer gzipReader.Close()
 
-			for _, path := range directories {
-				cmd.Printf("Directory: %s\n", path)
+			tarReader := tar.NewReader(gzipReader)
+
+			var directories []string
+
+			for {
+				header, err := tarReader.Next()
+				if err != nil {
+					if errors.Is(err, io.EOF) {
+						break
+					}
+					return fmt.Errorf("failed to read tarball header: %w", err)
+				}
+
+				for _, manifests := range supportedEcosystems {
+					for _, manifest := range manifests {
+						if strings.Contains(header.Name, manifest) {
+							parts := strings.Split(header.Name, "/")
+							if len(parts) > 1 {
+								directory := strings.Join(parts[1:], "/")
+								if strings.HasSuffix(directory, manifest) {
+									directory = filepath.Dir(directory)
+									if directory == "." {
+										directory = "/"
+									}
+								}
+								directories = append(directories, directory)
+							}
+						}
+					}
+				}
 			}
 
-			// generate the dependabot.yml template
-
-			// output the preview of the dependabot config file
+			for _, directory := range directories {
+				cmd.Printf("Found dependency file in %s\n", directory)
+			}
 
 			return nil
 		},

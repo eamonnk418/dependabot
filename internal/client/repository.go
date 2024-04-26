@@ -1,8 +1,14 @@
 package client
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -20,6 +26,44 @@ var supportedEcosystems = EcosystemMap{
 	"gradle": []string{"build.gradle", "build.gradle.kts"},
 }
 
+func (c GitHubClient) DownloadRepository(ctx context.Context, repoName string) (*os.File, error) {
+	parts := strings.Split(repoName, "/")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid repository format, must be owner/repo")
+	}
+
+	owner, repo := parts[0], parts[1]
+
+	archiveURL, _, err := c.Repositories.GetArchiveLink(ctx, owner, repo, github.Tarball, nil, 3)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, archiveURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.Client.BareDo(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	pattern := owner + "_" + repo + "_*.tar.gz"
+	file, err := os.CreateTemp(os.TempDir(), pattern)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	if _, err := io.Copy(file, resp.Body); err != nil {
+		return nil, err
+	}
+
+	return file, nil
+}
+
 func (p EcosystemMap) GetPackageEcosystem(fileName string) string {
 	for ecosystem, files := range supportedEcosystems {
 		for _, file := range files {
@@ -31,9 +75,75 @@ func (p EcosystemMap) GetPackageEcosystem(fileName string) string {
 	return "" // Return empty string if no ecosystem found
 }
 
-type Repository struct {
-	Name  string
-	Owner string
+func (c GitHubClient) GetArchiveLink(ctx context.Context, repoName string) (*url.URL, error) {
+	parts := strings.Split(repoName, "/")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("GetArchiveLink, invalid repository format, must be owner/repo")
+	}
+
+	owner, repo := parts[0], parts[1]
+
+	tarballURL, _, err := c.Repositories.GetArchiveLink(ctx, owner, repo, github.Tarball, nil, 3)
+	if err != nil {
+		return nil, err
+	}
+
+	return tarballURL, nil
+}
+
+func (c GitHubClient) DownloadTarballArchive(ctx context.Context, archiveURL *url.URL) (*os.File, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, archiveURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.Client.BareDo(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	pattern := c.Repository.GetOwner().GetLogin() + "_" + c.Repository.GetName() + "_*.tar.gz"
+	file, err := os.CreateTemp(os.TempDir(), pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := io.Copy(file, resp.Body); err != nil {
+		return nil, err
+	}
+
+	return file, nil
+}
+
+func (c GitHubClient) ExtractTarballArchive(ctx context.Context, file *os.File) ([]string, error) {
+	f, err := os.OpenFile(file.Name(), os.O_RDONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	gzr, err := gzip.NewReader(file)
+	if err != nil {
+		return nil, err
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+	var files []string
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		files = append(files, header.Name)
+	}
+
+	return files, nil
 }
 
 func (c GitHubClient) GetRepository(ctx context.Context, repoName string) (*github.Repository, error) {

@@ -2,8 +2,8 @@ package client
 
 import (
 	"context"
-	"net/http"
-	"time"
+	"net/url"
+	"os"
 
 	"github.com/google/go-github/v59/github"
 	"golang.org/x/oauth2"
@@ -14,21 +14,21 @@ type GitHubService interface {
 	ListRepositories(ctx context.Context, org string) ([]*github.Repository, error)
 	ListRepositories2(ctx context.Context, org string) ([]*github.Repository, error)
 	GetRepositoryContents(ctx context.Context, filepath string, repository *github.Repository, packageEcosystem EcosystemMap) (string, []string, error)
+	GetArchiveLink(ctx context.Context, repoName string) (*url.URL, error)
+	DownloadTarballArchive(ctx context.Context, archiveURL *url.URL) (*os.File, error)
+	ExtractTarballArchive(ctx context.Context, file *os.File) ([]string, error)
+	DownloadRepository(ctx context.Context, repoName string) (*os.File, error)
 }
 
 type GitHubClient struct {
 	*github.Client
+	*github.Repository
 }
 
 type Options func(*GitHubClient) error
 
 func NewGitHubClient(opts ...Options) GitHubService {
-	httpClient := &http.Client{
-		Transport: http.DefaultTransport,
-		Timeout:   10 * time.Second,
-	}
-
-	client := github.NewClient(httpClient)
+	client := github.NewClient(nil)
 
 	gitHubClient := &GitHubClient{Client: client}
 
