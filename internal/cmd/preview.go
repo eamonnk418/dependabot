@@ -56,31 +56,44 @@ func NewPreviewCmd() *cobra.Command {
 
 			var directories []string
 
+			supportedFiles := make(map[string]struct{})
+			for _, manifests := range supportedEcosystems {
+				for _, manifest := range manifests {
+					supportedFiles[manifest] = struct{}{}
+				}
+			}
+
 			for {
 				header, err := tarReader.Next()
 				if err != nil {
 					if errors.Is(err, io.EOF) {
 						break
 					}
-					return fmt.Errorf("failed to read tarball header: %w", err)
+					return err
 				}
 
-				for _, manifests := range supportedEcosystems {
-					for _, manifest := range manifests {
-						if strings.Contains(header.Name, manifest) {
-							parts := strings.Split(header.Name, "/")
-							if len(parts) > 1 {
-								directory := strings.Join(parts[1:], "/")
-								if strings.HasSuffix(directory, manifest) {
-									directory = filepath.Dir(directory)
-									if directory == "." {
-										directory = "/"
-									}
-								}
-								directories = append(directories, directory)
-							}
-						}
+				for manifest := range supportedFiles {
+					if !strings.Contains(header.Name, manifest) {
+						continue
 					}
+
+					parts := strings.Split(header.Name, "/")
+					if len(parts) < 2 {
+						continue
+					}
+
+					directory := strings.Join(parts[1:], "/")
+					if !strings.HasSuffix(directory, manifest) {
+						continue
+					}
+
+					directory = filepath.Dir(directory)
+					if directory == "." {
+						directory = "/"
+					}
+
+					directories = append(directories, directory)
+					break
 				}
 			}
 
