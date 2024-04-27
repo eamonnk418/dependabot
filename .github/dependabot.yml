@@ -10,7 +10,7 @@ updates:
       interval: "daily"
     groups:
       golang:
-        applies-to: security-updates
+        applies-to: version-updates
         patterns:
-          - "golang.org*"
+          - "*"
           
