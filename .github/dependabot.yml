@@ -8,3 +8,9 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    groups:
+      golang:
+        applies-to: security-updates
+        patterns:
+          - "golang.org*"
+          
