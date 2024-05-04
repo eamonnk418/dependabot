@@ -18,6 +18,7 @@ type GitHubService interface {
 	DownloadTarballArchive(ctx context.Context, archiveURL *url.URL) (*os.File, error)
 	ExtractTarballArchive(ctx context.Context, file *os.File) ([]string, error)
 	DownloadRepository(ctx context.Context, repoName string) (*os.File, error)
+	GetDependabotTemplateData(tarball *os.File) (string, []string, error)
 }
 
 type GitHubClient struct {

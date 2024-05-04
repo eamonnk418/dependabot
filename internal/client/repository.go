@@ -2,13 +2,16 @@ package client
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -309,6 +312,88 @@ func (c GitHubClient) GetRepositoryContents(ctx context.Context, path string, re
 	}
 
 	wg.Wait()
+
+	return packageEcosystem, directories, nil
+}
+
+func (c GitHubClient) GetDependabotTemplateData(tarball *os.File) (string, []string, error) {
+	b, err := os.ReadFile(tarball.Name())
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to read tarball: %w", err)
+	}
+
+	gzipReader, err := gzip.NewReader(bytes.NewReader(b))
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create gzip reader: %w", err)
+	}
+	defer gzipReader.Close()
+
+	tarReader := tar.NewReader(gzipReader)
+
+	var directories []string
+	var packageEcosystem string
+	var manifest string
+
+	supportedFiles := make(map[string]string) // Map file names to package ecosystems
+	for eco, manifests := range supportedEcosystems {
+		for _, manifest := range manifests {
+			supportedFiles[manifest] = eco
+		}
+	}
+
+	for {
+		header, err := tarReader.Next()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return "", nil, err
+		}
+
+		for manifest, ecosystem := range supportedFiles {
+			if strings.Contains(header.Name, manifest) {
+				packageEcosystem = ecosystem
+				break
+			}
+		}
+
+		if packageEcosystem != "" {
+			break
+		}
+	}
+
+	if packageEcosystem == "" {
+		return "", nil, fmt.Errorf("no supported package ecosystem found in the repository")
+	}
+
+	for {
+		header, err := tarReader.Next()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return "", nil, err
+		}
+
+		if strings.Contains(header.Name, manifest) {
+			parts := strings.Split(header.Name, "/")
+			if len(parts) < 2 {
+				continue
+			}
+
+			directory := strings.Join(parts[1:], "/")
+			if !strings.HasSuffix(directory, manifest) {
+				continue
+			}
+
+			directory = filepath.Dir(directory)
+			if directory == "." {
+				directory = "/"
+			}
+
+			directories = append(directories, directory)
+		}
+	}
 
 	return packageEcosystem, directories, nil
 }

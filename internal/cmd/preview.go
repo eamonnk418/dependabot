@@ -3,6 +3,7 @@ package cmd
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -110,3 +111,5 @@ func NewPreviewCmd() *cobra.Command {
 
 	return previewCmd
 }
+
+
